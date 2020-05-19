@@ -1,0 +1,128 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+use Getopt::Long;
+use Digest::SHA qw(sha1_hex);
+use URI;
+use XML::LibXML;
+use LWP::Simple;
+my $host;
+my $secret;
+my $protocol;
+my $api_path = "bigbluebutton/api/";
+my $cmd = 'getMeetings';
+GetOptions (
+        "secret=s"      => \$secret,
+        "host=s"        => \$host,
+	"protocol=s"	=> \$protocol)
+or die("Please Specify --host --secret --protocol [http|https]\n");
+my $random_string = generate_random_string(12);
+my $checksum = create_checksum($cmd,$random_string,$secret);
+my $data = get_data($protocol,$host,$api_path,$cmd,$checksum,$random_string);
+my $returncode = get_returncode($data);
+if ( $returncode eq 0 ) {
+	print "something went wrong\n";
+	exit 2;
+}
+my $total_meetings = count_meetings($data);
+my $total_parcipiants = count_all_parcipiants($data);
+my $total_moderators = count_all_moderators($data);
+my $total_audio = count_voice_parcipiants($data);
+my $total_videos = count_all_videos($data);
+my $total_listeners = count_all_listeners($data);
+print "Total Meetings=" . $total_meetings;
+print " Total Parcipiants=" . $total_parcipiants;
+print " Total Moderators=" . $total_moderators;
+print " Total Audios=" . $total_audio;
+print " Total Videos=" . $total_videos;
+print " Total Listeners=" . $total_listeners;
+print " |";
+print " total_meetings=" . $total_meetings;
+print " total_parcipiants=" . $total_parcipiants;
+print " total_moderators=" . $total_moderators;
+print " total_audio=" . $total_audio;
+print " total_videos=" . $total_videos;
+print " total_listeners=" . $total_listeners . "\n";
+exit 0;
+sub generate_random_string {
+        my $length      = shift;
+        my @chars=('a'..'z','A'..'Z','0'..'9');
+        my $random_string;
+        foreach (1..$length) {
+                $random_string.=$chars[rand @chars];
+        }
+        return $random_string;
+}
+sub create_checksum {
+	my $rndr = "random=" . $random_string;
+        my $checksum = $cmd . $rndr . $secret;
+        return sha1_hex($checksum);
+}
+sub get_data {
+        my $uri       = new URI();
+        $uri->scheme($protocol);
+        $uri->host($host);
+        $uri->path($api_path . $cmd);
+        $uri->query("checksum=" . $checksum . "&random=" . $random_string);
+	$uri->as_string;
+	my $xml = get($uri);
+	my $dom = XML::LibXML->load_xml(string => $xml);
+	return $dom;
+}
+sub get_returncode {
+	my $returncode = "";
+	my $string = "";
+	my $success = "SUCCESS";
+        foreach my $code ($data->findnodes('//response')) {
+            $string = $code->findvalue('./returncode');
+        }
+	if ( $string cmp $success ) {
+		$returncode = 0;
+	} else {
+		$returncode = 1;
+	}
+        return $returncode;
+}
+sub count_all_parcipiants {
+	my $sum = 0;
+	foreach my $count ($data->findnodes('//response/meetings/meeting')) {
+	    $sum += $count->findvalue('./participantCount');
+	}
+	return $sum;
+}
+sub count_all_moderators {
+        my $sum = 0;
+        foreach my $count ($data->findnodes('//response/meetings/meeting')) {
+            $sum += $count->findvalue('./moderatorCount');
+        }
+        return $sum;
+}
+sub count_voice_parcipiants {
+        my $sum = 0;
+        foreach my $count ($data->findnodes('//response/meetings/meeting')) {
+            $sum += $count->findvalue('./voiceParticipantCount');
+        }
+        return $sum;
+}
+sub count_all_videos {
+        my $sum = 0;
+        foreach my $count ($data->findnodes('//response/meetings/meeting')) {
+            $sum += $count->findvalue('./videoCount');
+        }
+        return $sum;
+}
+sub count_all_listeners {
+        my $sum = 0;
+        foreach my $count ($data->findnodes('//response/meetings/meeting')) {
+            $sum += $count->findvalue('./listenerCount');
+        }
+        return $sum;
+}
+sub count_meetings {
+        my @sum;
+        foreach my $count ($data->findnodes('//response/meetings/meeting')) {
+          push (@sum, $_)  
+        }
+        return scalar(@sum);
+}
+
